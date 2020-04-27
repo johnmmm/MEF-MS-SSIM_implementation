@@ -33,6 +33,8 @@ class MS_SSIMc_Color():
 
         self.D1 = cfg.D1
         self.D2 = cfg.D2
+        self.sigma_g = cfg.sigma_g
+        self.sigma_l = cfg.sigma_l
         self.K = cfg.K
         self.level = cfg.level
         self.eps = cfg.eps
@@ -47,7 +49,7 @@ class MS_SSIMc_Color():
         self.window_size = cfg.window_size_ms
         self.window = torch.tensor( matlab_style_gauss2D( (self.window_size, self.window_size), 1.5 ) )
         self.window = self.window.unsqueeze(dim=0).expand(self.channels, self.window_size, self.window_size)
-        self.window = (self.window / 3).type(torch.double)
+        self.window = (self.window / self.channels).type(torch.double)
 
     def __call__(self, img_seq_color, fused_img):
         print('call')
@@ -109,7 +111,7 @@ class MS_SSIMc_Color():
             lambda_new = (1 + math.sqrt(1 + 4 * lambda_old ** 2)) / 2
             gamma = (1 - lambda_old) / lambda_new
 
-            print(beta_new * grdt)
+            # print(beta_new * grdt)
             y_new = x_old + beta_new * grdt
             x_new = (1 - gamma) * y_new + gamma * y_old
             # deal with overflow and underflow
@@ -144,7 +146,7 @@ class MS_SSIMc_Color():
         return opt_image, S
 
     def mef_ms_ssim(self, x):
-        print('mef_ms_ssim')
+        #print('mef_ms_ssim')
 
         x = x.type(torch.double)
         self.img_seq_color = self.img_seq_color.type(torch.double)
@@ -182,7 +184,6 @@ class MS_SSIMc_Color():
                 for k in range(K):
                     new_img_seq[:, :, :, :, k] = downsampling(img_seq[:, :, :, :, k])
 
-                #img_seq = F.interpolate(img_seq, (1, 1, math.floor(H/2), math.floor(W/2), K), mode='bilinear')
                 img_seq = new_img_seq
                 fused_image = downsampling(fused_image)
 
@@ -190,6 +191,10 @@ class MS_SSIMc_Color():
             qmap.append(qmap_new)
             oQ = torch.prod( torch.pow(Q, self.weight) )
         
+        # for i in range(0, len(qmap)):
+        #     qmap_to_save = qmap[i].cpu().detach().numpy()
+        #     cv2.imwrite('./init_gmap' + str(i) + '.png', qmap_to_save*255)
+
         oQ.backward()
         grad = image.grad.flatten()
         # print(Q)
@@ -201,8 +206,8 @@ class MS_SSIMc_Color():
         img_seq = img_seq.type(torch.double)
         fused_image = fused_image.type(torch.double)
 
-        # print(img_seq.shape)
-        # print(fused_image.shape)
+        C1 = (self.D1 * 255) ** 2
+        C2 = (self.D2 * 255) ** 2
 
         _, C, H, W, K = img_seq.shape
         w_size = self.window.shape[-1]
@@ -224,9 +229,12 @@ class MS_SSIMc_Color():
         ed = self.ed[level]
         w_map = self.w_map[level]
         conv_one_tmp = self.conv_one_tmp[level]
+        conv_two_tmp = self.conv_two_tmp[level]
         tmp_norm = self.tmp_norm[level]
         maxEd = self.maxEd[level]
         sigma1_sq = self.sigma1_sq[level]
+        muX = self.muX[level]
+        muX_sq = self.muX_sq[level]
 
         conv_rf_tmp = torch.zeros( (H - 2 * bd, W - 2 * bd) )
         if cfg.use_cuda:
@@ -249,8 +257,13 @@ class MS_SSIMc_Color():
         # print(sigma12[0, 0])
         # print(conv_rf_tmp[0, 0])
 
-        C2 = (self.D2 * 255) ** 2
-        qmap = (2 * sigma12 + C2) / (sigma1_sq + sigma2_sq + C2)
+        # try to add the \mu
+        muY = conv_one_tmp_g
+        muY_sq = conv_one_tmp_g * conv_one_tmp_g
+        tmp_qmap_1 = (2 * (muX * muY) + C1) * (2 * sigma12 + C2 )
+        tmp_qmap_2 = (muX_sq + muY_sq  + C1) * (sigma1_sq + sigma2_sq + C2)
+        qmap = tmp_qmap_1 / tmp_qmap_2
+        #print(2 * (muX * muY) + C1)
         Q = torch.mean(qmap)
 
         return Q, qmap
@@ -263,9 +276,12 @@ class MS_SSIMc_Color():
         self.ed = []
         self.w_map = []
         self.conv_one_tmp = []
+        self.conv_two_tmp = []
         self.tmp_norm = []
         self.maxEd = []
         self.sigma1_sq = []
+        self.muX = []
+        self.muX_sq = []
 
         _, C, _, _, _ = img_seq.shape
         w_size = self.window.shape[-1]
@@ -289,6 +305,9 @@ class MS_SSIMc_Color():
             R = torch.zeros( (H - 2 * bd, W - 2 * bd) ).type(torch.double)
             w_map = torch.zeros( (H - 2 * bd, W - 2 * bd, K) )
             sigma1_sq = torch.zeros( (H - 2 * bd, W - 2 * bd) )
+            muX = torch.zeros( (H - 2 * bd, W - 2 * bd) )
+            muX_sq = torch.zeros( (H - 2 * bd, W - 2 * bd) )
+            LX = torch.zeros( (H - 2 * bd, W - 2 * bd, K) )
             if cfg.use_cuda:
                 mu = mu.to(device)
                 ed = ed.to(device)
@@ -298,6 +317,9 @@ class MS_SSIMc_Color():
                 R = R.to(device)
                 w_map = w_map.to(device)
                 sigma1_sq = sigma1_sq.to(device)
+                muX = muX.to(device)
+                muX_sq = muX_sq.to(device)
+                LX = LX.to(device)
 
             # use conv2d instead of filter2 !!!
             for k in range(K):
@@ -338,7 +360,6 @@ class MS_SSIMc_Color():
             tmp_max = torch.max(ed, dim=2)
             maxEd = tmp_max[0]
             patch_index = tmp_max[1]
-            #print(maxEd.shape)
 
             conv_one_tmp = torch.zeros( (H - 2 * bd, W - 2 * bd) )
             conv_two_tmp = torch.zeros( (H - 2 * bd, W - 2 * bd) )
@@ -363,20 +384,41 @@ class MS_SSIMc_Color():
                     tmp_conv_n = F.conv2d(img_seq[:, :, :, :, k1] * img_seq[:, :, :, :, k2], s_window * s_window_num)
                     tmp_conv_n -= 2 * F.conv2d(img_seq[:, :, :, :, k1], s_window * s_window_num) * mu[:, :, k2]
                     tmp_conv_n += mu[:, :, k1] * mu[:, :, k2] * s_window_num 
-                    conv_norm_tmp += torch.squeeze(tmp_conv_n) * w_map[:, :, k1] * w_map[:, :, k2] / (ed[:, :, k1] * ed[:, :, k2])
+                    this_norm = torch.squeeze(tmp_conv_n) * w_map[:, :, k1] * w_map[:, :, k2] / (ed[:, :, k1] * ed[:, :, k2])
+                    conv_norm_tmp += this_norm
 
             tmp_norm = torch.sqrt(conv_norm_tmp)
             conv_one_tmp *= maxEd / (tmp_norm + self.eps)
             conv_two_tmp *= (maxEd / (tmp_norm + self.eps)) * (maxEd / (tmp_norm + self.eps))
             sigma1_sq = conv_two_tmp - conv_one_tmp * conv_one_tmp
+
+            # calculate the u_k
+            demon_g = 2 * self.sigma_g ** 2
+            demon_l = 2 * self.sigma_l ** 2
+
+            for k in range(K):
+                img = img_seq[:, :, :, :, k]
+                muX_k = torch.squeeze(F.conv2d(img, self.window))
+                
+                tmp_muX_seq = muX_k / 255 - 0.5
+                tmp_muX_seq = (- tmp_muX_seq * tmp_muX_seq) / demon_g
+                tmp_lx = (torch.mean(img) / 255 - 0.5) ** 2 / demon_l
+                LX[:, :, k] = torch.exp(tmp_muX_seq - tmp_lx)
+                muX += torch.squeeze(muX_k) * LX[:, :, k]
+            
+            muX = muX / torch.sum(LX, dim=2)
+            muX_sq = muX * muX
             
             self.mu.append(mu)
             self.ed.append(ed)
             self.w_map.append(w_map)
             self.conv_one_tmp.append(conv_one_tmp)
+            self.conv_two_tmp.append(conv_two_tmp)
             self.tmp_norm.append(tmp_norm)
             self.maxEd.append(maxEd)
             self.sigma1_sq.append(sigma1_sq)
+            self.muX.append(muX)
+            self.muX_sq.append(muX_sq)
 
             downsampling = torch.nn.Upsample(scale_factor=0.5, mode='bicubic', align_corners=False)
             new_img_seq = torch.zeros( (1, C, math.floor(H/2), math.floor(W/2), K) )
