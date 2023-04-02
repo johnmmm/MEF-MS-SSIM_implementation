@@ -87,6 +87,26 @@ class MS_SSIMc():
 
         print(self.img_seq_color.device)
 
+        # # try example
+        # _, C, M, N, K = self.img_seq_color.shape
+        # gray_image = torch.zeros( (M, N) )
+        # img_seq_gray = torch.zeros( (M, N, K) )
+        # if cfg.use_cuda:
+        #     gray_image = gray_image.to(device)
+        #     img_seq_gray = img_seq_gray.to(device)
+
+        # # img2gray
+        # for k in range(K):
+        #     img_seq_gray[:, :, k] = rgb2gray(self.img_seq_color[0, :, :, :, k])
+        # gray_image = rgb2gray(self.fused_img[0, :, :, :])
+        # img_seq_gray = torch.unsqueeze(img_seq_gray, dim=0)
+        # img_seq_gray = torch.unsqueeze(img_seq_gray, dim=0)
+        # gray_image = torch.unsqueeze(gray_image, dim=0)
+        # gray_image = torch.unsqueeze(gray_image, dim=0)
+        # Q, qmap = self.mef_ssim(img_seq_gray, gray_image)
+
+        # return Q, qmap
+
         return self.MSO()
 
     def MSO(self):
@@ -266,20 +286,10 @@ class MS_SSIMc():
             sigma_sq = F.conv2d(img*img, s_window) - mu_sq
             ed[:, :, k] = torch.sqrt( torch.max( (w_size ** 2) * sigma_sq, zero_tensor) + 0.001 )
 
-        print(img_seq[:, :, 0, 0, :])
-        1/0
-        print(mu[0, 0, :])
+        #print(img_seq[:, :, 0, 0, :])
+        #1/0
+        #print(mu[0, 0, :])
 
-        # the old slow way
-        # for i in range(bd, M-bd):
-        #     for j in range(bd, N-bd):
-        #         vecs = img_seq[:, :, i-bd:i+bd+1, j-bd:j+bd+1, :].reshape( (w_size**2, K) )
-        #         denominator = 0
-        #         for k in range(K):
-        #             denominator += torch.norm(vecs[:, k]) - mu[i-bd, j-bd, k]
-        #         numerator = torch.norm(torch.sum(vecs, dim=1)) - torch.mean(torch.sum(vecs, dim=1))
-        #         R[i-bd, j-bd] = (numerator+self.eps) / (denominator + self.eps)
-        
         for k in range(K):
             img = img_seq * img_seq
             sqrt_tensor = torch.sqrt( F.conv2d(img[:, :, :, :, k], s_window * w_size ** 2) )
@@ -293,6 +303,24 @@ class MS_SSIMc():
         numerator = vec_norm - vec_mean
 
         R = (numerator + self.eps) / (denominator + self.eps)
+        
+        # the old slow way
+        # for i in range(bd, M-bd):
+        #     for j in range(bd, N-bd):
+        #         vecs = img_seq[:, :, i-bd:i+bd+1, j-bd:j+bd+1, :].reshape( (w_size**2, K) )
+        #         denominator = 0
+        #         for k in range(K):
+        #             denominator += torch.norm(vecs[:, k]) - mu[i-bd, j-bd, k]
+        #         numerator = torch.norm(torch.sum(vecs, dim=1)) - torch.mean(torch.sum(vecs, dim=1))
+        #         R[i-bd, j-bd] = (numerator+self.eps) / (denominator + self.eps)
+        
+        # print('error sum:')
+        # print(torch.sum(torch.abs(R_tmp-R)))
+        # print('error max:')
+        # print(torch.max(torch.abs(R_tmp-R)))
+        # print('pixel num:')
+        # print(R.shape)
+        # 1/0
         #print(torch.sum(R, dim=0))
 
         R[R > 1] = 1 - self.eps
@@ -322,70 +350,69 @@ class MS_SSIMc():
         #         for k in range(K):
         #             r_blocks += w_map[i-bd, j-bd, k] * (blocks[:, :, k] - mu[i-bd, j-bd, k]) / ed[i-bd, j-bd, k]
                 
-        #         mu1 = torch.sum(self.window * r_blocks)
-        #         print(mu1)
         #         r_blocks_norm = torch.norm(r_blocks)
         #         if r_blocks_norm > 0:
         #             r_blocks *= maxEd[i-bd, j-bd] / r_blocks_norm
 
         #         f_blocks = torch.squeeze(gray_image[:, :, i-bd:i+bd+1, j-bd:j+bd+1])
+
         #         mu1 = torch.sum(self.window * r_blocks)
         #         mu2 = torch.sum(self.window * f_blocks)
-        #         print(r_blocks_norm)
-        #         print(mu1)
-        #         sigma1_sq = torch.sum( self.window * (r_blocks - mu1) * (r_blocks - mu1) )
-        #         sigma2_sq = torch.sum( self.window * (f_blocks - mu2) * (f_blocks - mu2) )
-        #         sigma12 = torch.sum( self.window * (r_blocks - mu1) * (f_blocks - mu2) )
-        #         qmap[i-bd, j-bd] = (2 * sigma12 + C) / (sigma1_sq + sigma2_sq + C)
-        #         print(C)
-        #         print(sigma1_sq)
-        #         print(sigma2_sq)
-        #         print(sigma12)
-        #         print(qmap[i-bd, j-bd])
-        #         1/0
 
-        conv_one_tmp = torch.zeros( (M - 2 * bd, N - 2 * bd) )
-        conv_two_tmp = torch.zeros( (M - 2 * bd, N - 2 * bd) )
-        conv_rf_tmp = torch.zeros( (M - 2 * bd, N - 2 * bd) )
-        conv_norm_tmp = torch.zeros( (M - 2 * bd, N - 2 * bd) )
+        #         sigma1_sq[i-bd, j-bd] = torch.sum( self.window * (r_blocks - mu1) * (r_blocks - mu1) )
+        #         sigma2_sq[i-bd, j-bd] = torch.sum( self.window * (f_blocks - mu2) * (f_blocks - mu2) )
+        #         sigma12[i-bd, j-bd] = torch.sum( self.window * (r_blocks - mu1) * (f_blocks - mu2) )
+        #         qmap[i-bd, j-bd] = (2 * sigma12[i-bd, j-bd] + C) / (sigma1_sq[i-bd, j-bd] + sigma2_sq[i-bd, j-bd] + C)
+
+        conv_mu1 = torch.zeros( (M - 2 * bd, N - 2 * bd) )
+        conv_rBlocks_2 = torch.zeros( (M - 2 * bd, N - 2 * bd) )
+        conv_rfBlock = torch.zeros( (M - 2 * bd, N - 2 * bd) )
+        conv_rBlock_norm = torch.zeros( (M - 2 * bd, N - 2 * bd) )
         if cfg.use_cuda:
-            conv_one_tmp = conv_one_tmp.to(device)
-            conv_two_tmp = conv_two_tmp.to(device)
-            conv_rf_tmp = conv_rf_tmp.to(device)
-            conv_norm_tmp = conv_norm_tmp.to(device)
+            conv_mu1 = conv_mu1.to(device)
+            conv_rBlocks_2 = conv_rBlocks_2.to(device)
+            conv_rfBlock = conv_rfBlock.to(device)
+            conv_rBlock_norm = conv_rBlock_norm.to(device)
 
         for k in range(K):
-            tmp_conv = torch.squeeze(F.conv2d(img_seq[:, :, :, :, k], self.window))
-            tmp_conv -= mu[:, :, k]
-            conv_one_tmp += tmp_conv * w_map[:, :, k] / ed[:, :, k]
+            # mu1
+            tmp_conv_blocks = torch.squeeze(F.conv2d(img_seq[:, :, :, :, k], self.window))
+            tmp_conv_blocks -= mu[:, :, k]
+            conv_mu1 += tmp_conv_blocks * w_map[:, :, k] / ed[:, :, k]
+            # rBlock * fBlock
+            tmp_conv_rfBlock = torch.squeeze(F.conv2d(img_seq[:, :, :, :, k] * gray_image, self.window))
+            tmp_conv_rfBlock -= mu[:, :, k] * torch.squeeze(F.conv2d(gray_image, self.window))
+            conv_rfBlock += tmp_conv_rfBlock * w_map[:, :, k] / ed[:, :, k]
 
-            tmp_conv_tmp = torch.squeeze(F.conv2d(img_seq[:, :, :, :, k] * gray_image, self.window))
-            tmp_conv_tmp -= mu[:, :, k] * torch.squeeze(F.conv2d(gray_image, self.window))
-            conv_rf_tmp += tmp_conv_tmp * w_map[:, :, k] / ed[:, :, k]
-
+        # for the norm
         for k1 in range(K):
             for k2 in range(K):
-                tmp_conv_2 = F.conv2d(img_seq[:, :, :, :, k1] * img_seq[:, :, :, :, k2], self.window)
-                tmp_conv_2 -= 2 * F.conv2d(img_seq[:, :, :, :, k1], self.window) * mu[:, :, k2]
-                tmp_conv_2 += mu[:, :, k1] * mu[:, :, k2]
-                conv_two_tmp += torch.squeeze(tmp_conv_2) * w_map[:, :, k1] * w_map[:, :, k2] / (ed[:, :, k1] * ed[:, :, k2])
+                # cal the r_block * r_block
+                tmp_rBlocks_2 = F.conv2d(img_seq[:, :, :, :, k1] * img_seq[:, :, :, :, k2], self.window)
+                tmp_rBlocks_2 -= 2 * F.conv2d(img_seq[:, :, :, :, k1], self.window) * mu[:, :, k2]
+                tmp_rBlocks_2 += mu[:, :, k1] * mu[:, :, k2]
+                conv_rBlocks_2 += torch.squeeze(tmp_rBlocks_2) * w_map[:, :, k1] * w_map[:, :, k2] / (ed[:, :, k1] * ed[:, :, k2])
+                # cal the norm of r_block
+                tmp_rBlock_norm = F.conv2d(img_seq[:, :, :, :, k1] * img_seq[:, :, :, :, k2], s_window * w_size ** 2)
+                tmp_rBlock_norm -= 2 * F.conv2d(img_seq[:, :, :, :, k1], s_window * w_size ** 2) * mu[:, :, k2] 
+                tmp_rBlock_norm += mu[:, :, k1] * mu[:, :, k2] * w_size ** 2
+                conv_rBlock_norm += torch.squeeze(tmp_rBlock_norm) * w_map[:, :, k1] * w_map[:, :, k2] / (ed[:, :, k1] * ed[:, :, k2])
 
-                tmp_conv_n = F.conv2d(img_seq[:, :, :, :, k1] * img_seq[:, :, :, :, k2], s_window * w_size ** 2)
-                tmp_conv_n -= 2 * F.conv2d(img_seq[:, :, :, :, k1], s_window * w_size ** 2) * mu[:, :, k2] 
-                tmp_conv_n += mu[:, :, k1] * mu[:, :, k2] * w_size ** 2
-                conv_norm_tmp += torch.squeeze(tmp_conv_n) * w_map[:, :, k1] * w_map[:, :, k2] / (ed[:, :, k1] * ed[:, :, k2])
+        conv_rBlock_norm = torch.sqrt(conv_rBlock_norm)
+        # whole mu1
+        conv_mu1 *= maxEd / (conv_rBlock_norm + self.eps)
+        # rBlock * rBlock
+        conv_rBlocks_2 *= (maxEd / (conv_rBlock_norm + self.eps)) * (maxEd / (conv_rBlock_norm + self.eps))
+        sigma1_sq = conv_rBlocks_2 - conv_mu1 * conv_mu1
 
-        tmp_norm = torch.sqrt(conv_norm_tmp)
-        conv_one_tmp *= maxEd / (tmp_norm + self.eps)
-        conv_two_tmp *= (maxEd / (tmp_norm + self.eps)) * (maxEd / (tmp_norm + self.eps))
-        sigma1_sq = conv_two_tmp - conv_one_tmp * conv_one_tmp
+        # mu2
+        conv_mu2 = torch.squeeze( F.conv2d(gray_image, self.window) )
+        conv_fBlocks_2 = torch.squeeze( F.conv2d(gray_image * gray_image, self.window) )
+        # ok!
+        sigma2_sq = conv_fBlocks_2 - conv_mu2 * conv_mu2 # f_blocks.^2 - 2*f_blocks*mu2 - mu2^2
 
-        conv_one_tmp_g = torch.squeeze( F.conv2d(gray_image, self.window) )
-        conv_two_tmp_g = torch.squeeze( F.conv2d(gray_image * gray_image, self.window) )
-        sigma2_sq = conv_two_tmp_g - conv_one_tmp_g * conv_one_tmp_g
-
-        conv_rf_tmp *= maxEd / (tmp_norm + self.eps)
-        sigma12 = conv_rf_tmp - conv_one_tmp * conv_one_tmp_g
+        conv_rfBlock *= maxEd / (conv_rBlock_norm + self.eps)
+        sigma12 = conv_rfBlock - conv_mu1 * conv_mu2
 
         # print(sigma1_sq[0, 0])
         # print(sigma2_sq[0, 0])
@@ -393,7 +420,14 @@ class MS_SSIMc():
         # print(conv_rf_tmp[0, 0])
 
         C = (0.03 * 255) ** 2
-        qmap = (2 * sigma12 + C) / (sigma1_sq + sigma2_sq + C)
+        qmap_tmp = (2 * sigma12 + C) / (sigma1_sq + sigma2_sq + C)
+        # print('error sum:')
+        # print(torch.sum(torch.abs(qmap_tmp-qmap)))
+        # print('error max:')
+        # print(torch.max(torch.abs(qmap_tmp-qmap)))
+        # print('pixel num:')
+        # print(qmap_tmp.shape)
+        # 1/0
         Q = torch.mean(qmap)
 
         return Q, qmap
