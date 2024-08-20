@@ -1,8 +1,7 @@
-import os.path as osp
 from easydict import EasyDict as edict
 
 __C = edict()
-# cfg is treated as a global variable. 
+# cfg is treated as a global variable.
 # Need add "from config import cfg" for each file to use cfg.
 cfg = __C
 
@@ -32,6 +31,8 @@ __C.beta_new = 10e6
 
 # config
 __C.use_cuda = True
+__C.model = 'MEF_SSIMc'
+
 
 def cfg_from_list(cfg_list):
     """Set config keys via list (e.g., from command line)."""
@@ -48,10 +49,10 @@ def cfg_from_list(cfg_list):
         assert subkey in d
         try:
             value = literal_eval(v)
-        except:
+        except ValueError:
             # handle the case when v is a string literal
             value = v
-        assert type(value) == type(d[subkey]), \
+        assert isinstance(value, d[subkey]), \
             'type {} does not match original type {}'.format(
             type(value), type(d[subkey]))
         d[subkey] = value
